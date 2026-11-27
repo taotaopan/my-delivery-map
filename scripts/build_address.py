@@ -1,7 +1,7 @@
 """国土地理院「住居表示住所」(基礎番号) → 本 App 用的地址索引 JSON。
 用法: python scripts/build_address.py <zip> <out.json>
 列名不固定时会自动识别，并把表头打印到日志里，方便排查。"""
-import csv, io, json, re, sys, zipfile, datetime
+import csv, io, json, os, re, sys, zipfile, datetime
 
 KN = dict(zip("一二三四五六七八九", range(1, 10)))
 def k2n(s):
@@ -88,6 +88,7 @@ def main(zpath, out):
         sys.exit("没有解析出任何点，请看上面的表头输出")
     for t in towns.values():
         for b in t["b"].values(): b.sort()
+    os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
     json.dump({"v": 1, "built": datetime.date.today().isoformat(),
                "src": "国土地理院 電子国土基本図(地名情報)「住居表示住所」", "towns": towns},
               open(out, "w", encoding="utf-8"), ensure_ascii=False, separators=(",", ":"))
