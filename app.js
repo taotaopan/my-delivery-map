@@ -88,19 +88,25 @@ const map = new maplibregl.Map({
   attributionControl: false, dragRotate: false, pitchWithRotate: false,
   style: {
     version: 8,
+    glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
     sources: {
       pale:  { type: 'raster', tiles: ['https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png'], tileSize: 256, maxzoom: 18, attribution: GSI },
       photo: { type: 'raster', tiles: ['https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg'], tileSize: 256, maxzoom: 18, attribution: GSI },
       gsivt: { type: 'vector', url: 'pmtiles://https://cyberjapandata.gsi.go.jp/xyz/optimal_bvmap-v1/optimal_bvmap-v1.pmtiles', attribution: '国土地理院最適化ベクトルタイル' },
       mine: { type: 'geojson', data: EMPTY },
       entries: { type: 'geojson', data: EMPTY },
-      sel: { type: 'geojson', data: EMPTY }
+      sel: { type: 'geojson', data: EMPTY },
+      blk: { type: 'geojson', data: EMPTY },
+      gou: { type: 'geojson', data: EMPTY }
     },
     layers: [
       { id: 'pale', type: 'raster', source: 'pale' },
       { id: 'photo', type: 'raster', source: 'photo', layout: { visibility: 'none' } },
       { id: 'bld-fill', type: 'fill', source: 'gsivt', 'source-layer': 'BldA', minzoom: 14, paint: { 'fill-color': '#ffffff', 'fill-opacity': 0.01 } },
       { id: 'bld-line', type: 'line', source: 'gsivt', 'source-layer': 'BldA', minzoom: 16, paint: { 'line-color': '#7d7d7d', 'line-width': 0.8 } },
+      { id: 'blk-lbl', type: 'symbol', source: 'blk', minzoom: 15.5, layout: { 'text-field': ['get', 'b'], 'text-font': ['Open Sans Semibold'], 'text-size': ['interpolate', ['linear'], ['zoom'], 15.5, 13, 18, 20] }, paint: { 'text-color': '#2456b3', 'text-halo-color': '#fff', 'text-halo-width': 2 } },
+      { id: 'gou-dot', type: 'circle', source: 'gou', minzoom: 17.3, paint: { 'circle-radius': 2, 'circle-color': '#888' } },
+      { id: 'gou-lbl', type: 'symbol', source: 'gou', minzoom: 17.3, layout: { 'text-field': ['get', 'g'], 'text-font': ['Open Sans Regular'], 'text-size': 11, 'text-offset': [0, -0.8], 'text-padding': 1 }, paint: { 'text-color': '#444', 'text-halo-color': '#fff', 'text-halo-width': 1.5 } },
       { id: 'mine-fill', type: 'fill', source: 'mine', filter: ['==', ['geometry-type'], 'Polygon'], paint: { 'fill-color': ['case', ['get', 'old'], '#f3c9bd', '#ffab85'], 'fill-opacity': 0.6 } },
       { id: 'mine-line', type: 'line', source: 'mine', filter: ['==', ['geometry-type'], 'Polygon'], paint: { 'line-color': '#e2401c', 'line-width': 1.5 } },
       { id: 'mine-pt', type: 'circle', source: 'mine', filter: ['==', ['geometry-type'], 'Point'], paint: { 'circle-radius': 7, 'circle-color': '#e2401c', 'circle-stroke-color': '#fff', 'circle-stroke-width': 2 } },
@@ -162,6 +168,72 @@ function setSel(r) {
   if (!r) return s.setData(EMPTY);
   const g = r.poly && r.poly.length > 3 ? { type: 'Polygon', coordinates: [r.poly] } : { type: 'Point', coordinates: [r.lng, r.lat] };
   s.setData({ type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: g }] });
+}
+
+/* ---------------- 住居表示（番・号）索引 ---------------- */
+const ADDR = { ok: false, towns: {}, grid: new Map() };
+const cellKey = (lng, lat) => Math.floor(lng / 0.001) + ':' + Math.floor(lat / 0.001);
+async function loadAddr() {
+  try {
+    const res = await fetch('data/addr-13111.json');
+    if (!res.ok) return;
+    const j = await res.json();
+    ADDR.towns = j.towns;
+    const gouF = [], blkF = [];
+    for (const [tk, t] of Object.entries(j.towns)) {
+      for (const [b, pts] of Object.entries(t.b)) {
+        let sx = 0, sy = 0;
+        for (const [g, lng, lat] of pts) {
+          sx += lng; sy += lat;
+          gouF.push({ type: 'Feature', properties: { g: String(g) }, geometry: { type: 'Point', coordinates: [lng, lat] } });
+          const k = cellKey(lng, lat);
+          if (!ADDR.grid.has(k)) ADDR.grid.set(k, []);
+          ADDR.grid.get(k).push([lng, lat, tk, b, g]);
+        }
+        t.c = t.c || {}; t.c[b] = [sx / pts.length, sy / pts.length];
+        blkF.push({ type: 'Feature', properties: { b }, geometry: { type: 'Point', coordinates: t.c[b] } });
+      }
+    }
+    ADDR.ok = true;
+    const put = () => { map.getSource('gou').setData({ type: 'FeatureCollection', features: gouF }); map.getSource('blk').setData({ type: 'FeatureCollection', features: blkF }); };
+    if (map.getSource('gou')) put(); else map.once('load', put);
+  } catch {}
+}
+const dist2 = (a, b, c, d) => { const dx = (a - c) * Math.cos(d * Math.PI / 180); return dx * dx + (b - d) * (b - d); };
+function nearestAddr(lng, lat, maxM = 45) {
+  if (!ADDR.ok) return null;
+  const cx = Math.floor(lng / 0.001), cy = Math.floor(lat / 0.001);
+  let best = null, bd = Infinity;
+  for (let x = cx - 1; x <= cx + 1; x++) for (let y = cy - 1; y <= cy + 1; y++) {
+    for (const p of ADDR.grid.get(x + ':' + y) || []) { const d = dist2(p[0], p[1], lng, lat); if (d < bd) { bd = d; best = p; } }
+  }
+  if (!best || Math.sqrt(bd) * 111000 > maxM) return null;
+  return { lng: best[0], lat: best[1], label: `${best[2]}-${best[3]}-${best[4]}` };
+}
+/* 在一段文字里找「町丁目-番-号」，返回位置 */
+function lookupAddr(text) {
+  if (!ADDR.ok) return null;
+  const n = norm(text);
+  for (const m of n.matchAll(/([^\d-]+\d+)-(\d+)(?:-(\d+))?/g)) {
+    let town = m[1];
+    while (town.length > 1 && !ADDR.towns[town]) town = town.slice(1);
+    const t = ADDR.towns[town]; if (!t) continue;
+    const pts = t.b[m[2]]; if (!pts) continue;
+    if (m[3]) {
+      const g = +m[3], hit = pts.find(p => p[0] === g);
+      if (hit) return { lng: hit[1], lat: hit[2], level: '号', label: `${town}-${m[2]}-${m[3]}` };
+    }
+    const c = t.c[m[2]];
+    return { lng: c[0], lat: c[1], level: '番', label: `${town}-${m[2]}` + (m[3] ? `（${m[3]}号无数据，显示到番）` : '') };
+  }
+  return null;
+}
+let pinMarker = null;
+function dropPin(p) {
+  pinMarker?.remove();
+  const el = document.createElement('div'); el.className = 'pin';
+  pinMarker = new maplibregl.Marker({ element: el, anchor: 'bottom' }).setLngLat([p.lng, p.lat]).addTo(map);
+  map.flyTo({ center: [p.lng, p.lat], zoom: p.level === '号' ? 19 : 18 });
 }
 
 /* ---------------- 点击 / 长按 ---------------- */
@@ -233,6 +305,8 @@ function newRec(ll, ring) {
 }
 function closeSheet() { $('sheet').hidden = true; cur = null; mode = null; setSel(null); }
 async function guessAddr(r) {
+  const near = nearestAddr(r.lng, r.lat);
+  if (near) { if (cur === r && !$('f_addr').value) $('f_addr').value = '大田区' + near.label; return; }
   try {
     const res = await fetch(`https://mreversegeocoder.gsi.go.jp/reverse-geocoder/LonLatToAddress?lat=${r.lat}&lon=${r.lng}`);
     const j = await res.json(); const nm = j?.results?.lv01Nm;
@@ -277,14 +351,18 @@ function search(q) {
   return recs.filter(r => (r.name && r.name.includes(raw)) || (r.units && r.units.includes(raw)) || (n && norm(r.addr).includes(n)) || (r.note && r.note.includes(raw))).slice(0, 40);
 }
 function hideResults() { $('results').hidden = true; }
+let addrHit = null;
 $('q').addEventListener('input', () => {
   const list = search($('q').value), box = $('results');
   if (!$('q').value.trim()) return hideResults();
-  box.innerHTML = list.length ? list.map(r => `<button data-id="${esc(r.id)}"><b>${esc(r.name || '（无名）')}</b><small>${esc([r.addr, r.units].filter(Boolean).join(' · '))}</small></button>`).join('')
-    : '<button disabled><small>没有找到</small></button>';
+  addrHit = lookupAddr($('q').value);
+  const top = addrHit ? `<button data-addr="1"><b>📍 ${esc(addrHit.label)}</b><small>住居表示・定位到${addrHit.level}</small></button>` : '';
+  box.innerHTML = top + (list.length ? list.map(r => `<button data-id="${esc(r.id)}"><b>${esc(r.name || '（无名）')}</b><small>${esc([r.addr, r.units].filter(Boolean).join(' · '))}</small></button>`).join('')
+    : (top ? '' : '<button disabled><small>没有找到</small></button>'));
   box.hidden = false;
 });
 $('results').addEventListener('click', e => {
+  if (e.target.closest('button[data-addr]') && addrHit) { hideResults(); $('q').blur(); closeSheet(); dropPin(addrHit); return; }
   const b = e.target.closest('button[data-id]'); if (!b) return;
   const r = byId(b.dataset.id); hideResults(); $('q').blur();
   map.flyTo({ center: [r.lng, r.lat], zoom: Math.max(map.getZoom(), 18.3) });
@@ -325,7 +403,11 @@ $('todayGo').onclick = async () => {
   ls.set('today', todayData); renderToday();
   const miss = todayData.items.filter(it => !it.ids.length);
   if (miss.length) toast(`有 ${miss.length} 件没有标注，正在按住所大致定位…`, 3000);
-  for (const it of miss) { it.geo = await geocode(addrPart(it.line)); ls.set('today', todayData); renderToday(); }
+  for (const it of miss) {
+    const a = lookupAddr(it.line);
+    it.geo = a ? { lat: a.lat, lng: a.lng, title: a.label, level: a.level } : await geocode(addrPart(it.line));
+    ls.set('today', todayData); renderToday();
+  }
   fitToday();
 };
 $('todayClear').onclick = () => { todayData = { date: today(), items: [] }; ls.set('today', todayData); $('todayText').value = ''; renderToday(); };
@@ -352,7 +434,7 @@ function renderToday() {
     const p = itemPoint(it), r = p?.rec;
     const row = document.createElement('div');
     row.className = 'ti' + (it.done ? ' done' : '') + (r ? '' : ' none');
-    const st = r ? (it.ids.length > 1 ? `候选 ${it.ids.length} 个 · 显示第一个` : `✓ ${r.name || ''} ${r.units || ''}`) : (p ? '未标注 · 只定位到大致位置' : '未标注 · 找不到位置');
+    const st = r ? (it.ids.length > 1 ? `候选 ${it.ids.length} 个 · 显示第一个` : `✓ ${r.name || ''} ${r.units || ''}`) : (p ? (it.geo?.level ? `未标注 · 住居表示定位到${it.geo.level}` : '未标注 · 只定位到大致位置') : '未标注 · 找不到位置');
     row.innerHTML = `<div class="no">${i + 1}</div><div><div class="t"></div><div class="s"></div></div><div class="b"></div>`;
     row.querySelector('.t').textContent = it.line;
     row.querySelector('.s').textContent = st + (r?.note ? ' · ' + r.note : '');
@@ -433,6 +515,7 @@ $('locBtn').onclick = () => { try { geo.trigger(); } catch { toast('无法获取
 
 /* ---------------- 启动 ---------------- */
 (async () => {
+  loadAddr();
   try { await DB.open(); recs = await DB.all(); }
   catch (err) { toast('本地数据库打开失败：' + err, 6000); }
   if (map.loaded()) { refresh(); renderToday(); }

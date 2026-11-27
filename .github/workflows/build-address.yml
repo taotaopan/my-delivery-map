@@ -1,0 +1,26 @@
+name: build address index
+on:
+  workflow_dispatch:
+  push:
+    paths: ['scripts/build_address.py', '.github/workflows/build-address.yml']
+  schedule:
+    - cron: '17 3 1 * *'   # 每月 1 日更新一次
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: pip install pyproj
+      - name: download 大田区 (13111)
+        run: curl -fL --retry 3 -o /tmp/13111.zip https://saigai.gsi.go.jp/jusho/download/data/13111.zip && ls -l /tmp/13111.zip
+      - run: python scripts/build_address.py /tmp/13111.zip data/addr-13111.json
+      - name: commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/addr-13111.json
+          git diff --cached --quiet || (git commit -m "更新大田区住居表示数据" && git push)

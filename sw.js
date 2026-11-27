@@ -1,5 +1,5 @@
 // 只缓存 App 本身和地图库；地图瓦片、地址接口一律走网络
-const V = 'dm-v1';
+const V = 'dm-v2';
 const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'manifest.webmanifest', 'icons/icon-192.png'];
 
 self.addEventListener('install', e => {
