@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#e2401c">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="配達マップ">
+<title>配達マップ</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5/dist/maplibre-gl.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="map"></div>
+
+<!-- 顶部搜索 -->
+<div id="top">
+  <div class="searchbox">
+    <input id="q" type="search" placeholder="搜表札・住所" autocomplete="off" enterkeyhint="search">
+    <button id="menuBtn" class="ic" aria-label="菜单">☰</button>
+  </div>
+  <div id="results" hidden></div>
+  <div id="toast" hidden></div>
+</div>
+
+<!-- 右侧按钮 -->
+<div id="fabs">
+  <button id="todayBtn" class="fab" aria-label="今日配送">今日<span id="todayCnt"></span></button>
+  <button id="layerBtn" class="fab" aria-label="切换航拍">航拍</button>
+  <button id="locBtn" class="fab" aria-label="当前位置">◎</button>
+</div>
+<div id="hint">点建筑 = 标注　长按空地 = 放点</div>
+
+<!-- 底部编辑面板 -->
+<div id="sheet" class="panel" hidden>
+  <div class="grab"></div>
+  <div class="sheet-head">
+    <strong id="sheetTitle">新标注</strong>
+    <button id="sheetClose" class="ic" aria-label="关闭">✕</button>
+  </div>
+  <form id="form" autocomplete="off">
+    <label class="f big"><span>表札</span><input id="f_name" placeholder="例：山田　（多户用・隔开）"></label>
+    <label class="f"><span>住所</span><input id="f_addr" placeholder="大田区○○1-2-3"></label>
+    <label class="f"><span>世帯/部屋</span><input id="f_units" placeholder="二世帯・公寓房号等"></label>
+    <div class="f2">
+      <label class="f"><span>置き配</span>
+        <select id="f_oki"><option value="">未确认</option><option>可</option><option>不可</option><option>宅配ボックス</option><option>要サイン</option></select></label>
+      <div class="f entry"><span>入口</span><button type="button" id="entryBtn" class="mini">点地图设置</button></div>
+    </div>
+    <label class="f"><span>备注</span><textarea id="f_note" rows="2" placeholder="狗・白天不在・旗竿地走左侧通路…"></textarea></label>
+    <p id="meta" class="meta"></p>
+    <div class="acts">
+      <button type="submit" class="btn pri" id="saveBtn">保存</button>
+      <button type="button" class="btn" id="navBtn">导航</button>
+      <button type="button" class="btn del" id="delBtn" hidden>删除</button>
+    </div>
+  </form>
+</div>
+
+<!-- 今日配送 -->
+<div id="today" class="panel full" hidden>
+  <div class="sheet-head">
+    <strong>今日配送</strong>
+    <button id="todayClose" class="ic" aria-label="关闭">✕</button>
+  </div>
+  <div id="todayInput">
+    <p class="meta">一行一件，粘贴住所和姓名（顺序随意），例：<br>大田区西蒲田7-3-1 山田様<br>蒲田5丁目12番8号 佐藤</p>
+    <textarea id="todayText" rows="7"></textarea>
+    <div class="acts">
+      <button class="btn pri" id="todayGo">匹配并显示</button>
+      <button class="btn" id="todayClear">清空今日</button>
+    </div>
+  </div>
+  <div id="todayList"></div>
+</div>
+
+<!-- 菜单 -->
+<div id="menu" class="panel full" hidden>
+  <div class="sheet-head">
+    <strong>数据</strong>
+    <button id="menuClose" class="ic" aria-label="关闭">✕</button>
+  </div>
+  <div class="stats" id="stats"></div>
+  <div class="acts col">
+    <button class="btn pri" id="expJson">导出备份（JSON）</button>
+    <button class="btn" id="expCsv">导出表格（CSV）</button>
+    <label class="btn file">导入备份（JSON）<input type="file" id="impJson" accept=".json,application/json" hidden></label>
+  </div>
+  <p class="meta">数据只保存在这台手机里。请先「添加到主屏幕」再使用，并每周导出一次备份（可存到 iCloud Drive / Google Drive）。</p>
+  <p class="meta">地图：<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">国土地理院</a>（地理院タイル・最適化ベクトルタイル）。住所推定：国土地理院 逆ジオコーダ。</p>
+</div>
+
+<script src="https://unpkg.com/maplibre-gl@5/dist/maplibre-gl.js"></script>
+<script src="https://unpkg.com/pmtiles@4/dist/pmtiles.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
