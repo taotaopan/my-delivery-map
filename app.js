@@ -24,7 +24,7 @@ function k2n(s) {
 const kanjiChome = s => s.replace(/([一二三四五六七八九十]+)丁目/g, (all, k) => { const n = k2n(k); return n ? n + '丁目' : all; });
 function norm(s) {
   return kanjiChome(z2h(s)).replace(/東京都|大田区|\s/g, '')
-    .replace(/丁目|番地|番|の|ノ/g, '-').replace(/号/g, '')
+    .replace(/[ヶケヵ]/g, 'が').replace(/(\d)[のノ](?=\d)/g, '$1-').replace(/丁目|番地|番/g, '-').replace(/号/g, '')
     .replace(/-+/g, '-').replace(/^-|-$/g, '').toLowerCase();
 }
 const chome = n => (n.match(/^\D+\d+/) || [''])[0];
@@ -199,6 +199,7 @@ async function loadAddr() {
     if (map.getSource('gou')) put(); else map.once('load', put);
   } catch {}
 }
+const fmtAddr = (town, b, g) => town + (/\d$/.test(town) ? '-' : '') + b + (g ? '-' + g : '');
 const dist2 = (a, b, c, d) => { const dx = (a - c) * Math.cos(d * Math.PI / 180); return dx * dx + (b - d) * (b - d); };
 function nearestAddr(lng, lat, maxM = 45) {
   if (!ADDR.ok) return null;
@@ -208,23 +209,27 @@ function nearestAddr(lng, lat, maxM = 45) {
     for (const p of ADDR.grid.get(x + ':' + y) || []) { const d = dist2(p[0], p[1], lng, lat); if (d < bd) { bd = d; best = p; } }
   }
   if (!best || Math.sqrt(bd) * 111000 > maxM) return null;
-  return { lng: best[0], lat: best[1], label: `${best[2]}-${best[3]}-${best[4]}` };
+  return { lng: best[0], lat: best[1], label: fmtAddr(best[2], best[3], best[4]) };
 }
 /* 在一段文字里找「町丁目-番-号」，返回位置 */
 function lookupAddr(text) {
   if (!ADDR.ok) return null;
   const n = norm(text);
-  for (const m of n.matchAll(/([^\d-]+\d+)-(\d+)(?:-(\d+))?/g)) {
-    let town = m[1];
-    while (town.length > 1 && !ADDR.towns[town]) town = town.slice(1);
-    const t = ADDR.towns[town]; if (!t) continue;
-    const pts = t.b[m[2]]; if (!pts) continue;
-    if (m[3]) {
-      const g = +m[3], hit = pts.find(p => p[0] === g);
-      if (hit) return { lng: hit[1], lat: hit[2], level: '号', label: `${town}-${m[2]}-${m[3]}` };
+  const findTown = name => { let t = name; while (t.length > 1 && !ADDR.towns[t]) t = t.slice(1); return ADDR.towns[t] ? t : null; };
+  for (const m of n.matchAll(/([^\d-]+)(\d+)(?:-(\d+))?(?:-(\d+))?/g)) {
+    // 两种读法：「町名+丁目-番-号」或「町名(无丁目)-番-号」
+    const tries = [[m[1] + m[2], m[3], m[4]], [m[1], m[2], m[3]]];
+    for (const [tn, blk, gou] of tries) {
+      if (!blk) continue;
+      const town = findTown(tn); if (!town) continue;
+      const t = ADDR.towns[town], pts = t.b[blk]; if (!pts) continue;
+      if (gou) {
+        const hit = pts.find(p => p[0] === +gou);
+        if (hit) return { lng: hit[1], lat: hit[2], level: '号', label: fmtAddr(town, blk, gou) };
+      }
+      const c = t.c[blk];
+      return { lng: c[0], lat: c[1], level: '番', label: fmtAddr(town, blk) + (gou ? `（${gou}号无数据，显示到番）` : '') };
     }
-    const c = t.c[m[2]];
-    return { lng: c[0], lat: c[1], level: '番', label: `${town}-${m[2]}` + (m[3] ? `（${m[3]}号无数据，显示到番）` : '') };
   }
   return null;
 }
