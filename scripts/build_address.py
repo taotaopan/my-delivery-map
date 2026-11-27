@@ -55,7 +55,13 @@ def main(zpath, out):
         ki = find(header, "系")
         ci = find(header, "住所コード")
         print("cols town/block/gou/lat/lon/x/y/kei/code:", ti, bi, gi, lat, lon, xi, yi, ki, ci)
-        for r in rows[1:]:
+        data = rows[1:]
+        if ti is None and re.fullmatch(r"\d{5}", header[0]) and len(header) >= 8:
+            # 无表头格式: 市区町村コード,町名,街区符号,基礎番号,URI,(空),経度,緯度,精度
+            ti, bi, gi, lon, lat = 1, 2, 3, 6, 7
+            data = rows
+            print("无表头，按固定列解析: 町名=1 街区=2 基礎番号=3 経度=6 緯度=7")
+        for r in data:
             if not r or len(r) < len(header) - 2: continue
             town, blk, gou = (r[ti] if ti is not None else None), (num(r[bi]) if bi is not None else None), (num(r[gi]) if gi is not None else None)
             if ci is not None and (not town or not blk or not gou):
